@@ -1,9 +1,9 @@
 {
-  "name": "ngsticky",
+  "name": "ngsticky-nrowan",
   "version": "1.8.14",
   "homepage": "https://github.com/nrowan/ngSticky",
   "authors": [
-    "Nate Rowan"
+    "Nate Rowan <naterowandev@gmail.com>"
   ],
   "description": "A simple, pure javascript (No jQuery required!) AngularJS directive to make elements stick when scrolling down.",
   "main": "lib/sticky.js",
