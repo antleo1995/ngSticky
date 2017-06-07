@@ -389,8 +389,15 @@
             }
           }
 
-          // Triggered when parent height changes
+          /**
+           *  Triggered when parent height changes
+           * return 0 if the DOM element is hidden
+           */
           function onParentHeightChange() {
+            var elemDisplay = $window.getComputedStyle($elem[0]).getPropertyValue('display');
+            if(elemDisplay === 'none') {
+              return 0;
+            }
             return $elParent[0].offsetHeight;
           }
 
