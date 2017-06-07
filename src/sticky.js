@@ -394,9 +394,10 @@
            * return 0 if the DOM element is hidden
            */
           function onParentHeightChange() {
-            var elemDisplay = $window.getComputedStyle($elem[0]).getPropertyValue('display');
-            if(elemDisplay === 'none') {
-              return 0;
+            // Copied from above. Seems like if element started at top it would assume it was not visible
+            var offsetFromTop = elementsOffsetFromTop($elem[0]);
+            if (offsetFromTop === 0) {
+              return offsetFromTop;
             }
             return $elParent[0].offsetHeight;
           }
@@ -404,7 +405,9 @@
           /**
            * Triggered when the parent height changes and need to recalculate stickyBottom
            */
-          function stickyBottomLineCalculate() {
+          function stickyBottomLineCalculate(newVal, oldVal) {
+            // Don't run if hidden
+            if(!!newVal) {
             // Get Parent height, so we know when to bottom out for confined stickies
               var parent = $elParent[0];
 
@@ -431,6 +434,7 @@
               var elementsDistanceFromBottomOfParent = parentsDistanceFromTop + parentHeight - elementsDistanceFromTop;
 
               stickyBottomLine = elementsDistanceFromScrollbarStart + elementsDistanceFromBottomOfParent - $elem[0].offsetHeight - marginBottom - elementPaddingBottom - elementPaddingTop - offset + (+scrollbarYPos());
+            }
           }
 
           /**
