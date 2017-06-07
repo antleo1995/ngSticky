@@ -66,21 +66,15 @@
 
           // flag: can react to recalculating the initial CSS dimensions later
           // as link executes prematurely. defaults to immediate checking
-          var isStickyLayoutDeferred = $attrs.isStickyLayoutDeferred !== undefined
-            ? ($attrs.isStickyLayoutDeferred === 'true')
-            : false;
+          var isStickyLayoutDeferred = $attrs.isStickyLayoutDeferred !== undefined ? ($attrs.isStickyLayoutDeferred === 'true') : false;
 
           // flag: is sticky content constantly observed for changes.
           // Should be true if content uses ngBind to show text
           // that may vary in size over time
-          var isStickyLayoutWatched = $attrs.isStickyLayoutWatched !== undefined
-          ? ($attrs.isStickyLayoutWatched === 'true')
-          : true;
+          var isStickyLayoutWatched = $attrs.isStickyLayoutWatched !== undefined ? ($attrs.isStickyLayoutWatched === 'true') : true;
 
 
-          var offset = $attrs.offset
-            ? parseInt($attrs.offset.replace(/px;?/, ''))
-            : 0;
+          var offset = $attrs.offset ? parseInt($attrs.offset.replace(/px;?/, '')) : 0;
 
           /**
            * Trigger to initialize the sticky
@@ -88,81 +82,56 @@
            * @type {Boolean}
            */
           var shouldInitialize = true;
-
-          /**
-           * Initialize Sticky
-           */
-          function initSticky() {
-
-            if (shouldInitialize) {
-
-              // Listeners
-              scrollbarElement.on('scroll', checkIfShouldStick);
-              windowElement.on('resize', $onResize);
-
-              memorizeDimensions(); // remember sticky's layout dimensions
-
-              // Setup watcher on digest and change
-              $scope.$watch(onDigest, onChange);
-              
-              // IF the sticky is confined
-              if (confine) {
-                // Make sure the parent is relatively positioned, otherwise it won't bottom out properly
-                $elParent.css({
-                  'position': 'relative'
-                });
-
-                // Setup watcher on parent height as we need to recalculate the bottom if it does
-                $scope.$watch(onParentHeightChange, stickyBottomLineCalculate);
-              }              
-
-              // Clean up
-              $scope.$on('$destroy', onDestroy);
-              shouldInitialize = false;
-            }
+          
+          
+          
+          // Helper Functions
+          var intToPixelString = function(val) {
+            return val ? val.toString() + 'px' : '';
+          };
+          var pixelStringToInt = function(val) {
+            return val ? parseInt(val.replace(/px;?/, '')) : 0;
           };
 
           /**
-           * need to recall sticky's DOM attributes (make sure layout has occured)
+           * Need to get width without padding if using to set css of the element
            */
-          function memorizeDimensions() {
-            // immediate assignment, but there is the potential for wrong values if content not ready
-            initialCSS = $scope.getInitialDimensions();
+          var getInternalWidthNoPadding = function(elem) {
+            var elemPaddingLeft = pixelStringToInt($window.getComputedStyle(elem).getPropertyValue('padding-left'));
+            var elemPaddingRight = pixelStringToInt($window.getComputedStyle(elem).getPropertyValue('padding-right'));
 
-            // option to calculate the dimensions when layout is 'ready'
-            if (isStickyLayoutDeferred) {
+            var elemWidth = elem.clientWidth - elemPaddingLeft - elemPaddingRight;
+            // Width shouldn't be negative, but could be if width is 0 and padding exists
+            elemWidth = elemWidth < 0 ? 0 : elemWidth;
+            return elemWidth;
+          };
+          /**
+           * Get the CSS 'right' value for an absolute element that is becoming fixed. 
+           * When the element is absolute, the 'right' value is relative to the parent. When the element fixed it is based on viewport.
+           */
+          var absoluteToFixedCSSRight = function(elem) {
+              var parent = $elParent[0];
+              var parentWidth = parent.offsetWidth;
+              var viewPortWidth = $document[0].documentElement.clientWidth;
+              // Calculate parent distance from right side of viewport by subtracting parent left from viewportwidth 
+              var parentViewPortFromRight = viewPortWidth - parent.getBoundingClientRect().left;
+              // Subtract the parent width from value to find the unaccounted for pixels that are outside the parent (padding, margins etc)
+              var additionalRightPixels = parentViewPortFromRight - parentWidth;
+              additionalRightPixels = additionalRightPixels < 0 ? -1 : additionalRightPixels;
 
-              // logic: when this directive link() runs before the content has had a chance to layout on browser, height could be 0
-              if (!$elem[0].getBoundingClientRect().height) {
-
-                onStickyHeighUnbind = $scope.$watch(
-                    function() {
-                      return $elem.height();
-                    },
-
-                    // state change: sticky content's height set
-                    function onStickyContentLayoutInitialHeightSet(newValue, oldValue) {
-                      if (newValue > 0) {
-                        // now can memorize
-                        initialCSS = $scope.getInitialDimensions();
-
-                        if (!isStickyLayoutWatched) {
-                          // preference was to do just a one-time async watch on the sticky's content; now stop watching
-                          onStickyHeighUnbind();
-                        }
-                      }
-                    }
-               );
-              }
-            }
-          }
+              var elemRight = pixelStringToInt($window.getComputedStyle(elem).getPropertyValue('right'));
+              return intToPixelString(elemRight + additionalRightPixels);
+          };
+          
 
           /**
            * Determine if the element should be sticking or not.
            */
           var checkIfShouldStick = function() {
             if ($scope.disabled === true || mediaQueryMatches()) {
-              if (isSticking) unStickElement();
+              if (isSticking) { 
+                unStickElement();
+              }
               return false;
             }
 
@@ -196,7 +165,187 @@
               originalOffset = elementsOffsetFromTop($elem[0]);
               unStickElement(closestLine, scrollbarPosition);
             }
+          };          
+
+          /**
+           * Clean up directive
+           */
+          var onDestroy = function() {
+            scrollbarElement.off('scroll', checkIfShouldStick);
+            windowElement.off('resize', $onResize);
+
+            $onResize = null;
+
+            $body.removeClass(bodyClass);
+
+            if (placeholder) {
+              placeholder.remove();
+            }
           };
+          // End Helper Functions
+          
+
+          /**
+           * Triggered on load / digest cycle
+           * return `0` if the DOM element is hidden
+           */
+          var onDigest = function() {
+            if ($scope.disabled === true) {
+              return unStickElement();
+            }
+            var offsetFromTop = elementsOffsetFromTop($elem[0]);
+            if (offsetFromTop === 0) {
+              return offsetFromTop;
+            }
+            if (anchor === 'top') {
+              return (originalOffset || offsetFromTop) - elementsOffsetFromTop(scrollbar) + scrollbarYPos();
+            } else {
+              return offsetFromTop - scrollbarHeight() + $elem[0].offsetHeight + scrollbarYPos();
+            }
+          };
+
+          /**
+           *  Triggered when parent height changes
+           * return 0 if the DOM element is hidden
+           */
+          var onParentHeightChange = function() {
+            // Copied from above. Seems like if element started at top it would assume it was not visible
+            var offsetFromTop = elementsOffsetFromTop($elem[0]);
+            if (offsetFromTop === 0) {
+              return offsetFromTop;
+            }
+            return $elParent[0].offsetHeight;
+          };
+
+          /**
+           * Triggered when the parent height changes and need to recalculate stickyBottom
+           */
+          var stickyBottomLineCalculate = function(newVal) {
+            // Don't run if hidden
+            // Get Parent height, so we know when to bottom out for confined stickies
+              var parent = $elParent[0];
+
+              // The element height is being subtracted below so if we do it here we are doubling the subtraction
+              // Offset parent height by the elements height, if we're not using a placeholder
+              //var parentHeight = parseInt(parent.offsetHeight) - (usePlaceholder ? 0 : $elem[0].offsetHeight);
+              var parentHeight = parseInt(parent.offsetHeight);
+
+              // and now lets ensure we adhere to the bottom margins
+              // TODO: make this an attribute? Maybe like ignore-margin?
+              var marginBottom = parseInt($elem.css('margin-bottom').replace(/px;?/, '')) || 0;
+
+              // The element.offsetHeight should include the padding, but without subtracting the padding top and bottom again, 
+              // the element will dip below the parent by the padding number of pixels
+              var elementPaddingBottom = pixelStringToInt($window.getComputedStyle($elem[0]).getPropertyValue('padding-bottom')) || 0;
+              var elementPaddingTop = pixelStringToInt($window.getComputedStyle($elem[0]).getPropertyValue('padding-top')) || 0;
+
+              // specify the bottom out line for the sticky to unstick
+              var elementsDistanceFromTop = elementsOffsetFromTop($elem[0]);
+              var parentsDistanceFromTop = elementsOffsetFromTop(parent);
+              var scrollbarDistanceFromTop = elementsOffsetFromTop(scrollbar);
+
+              var elementsDistanceFromScrollbarStart = elementsDistanceFromTop - scrollbarDistanceFromTop;
+              var elementsDistanceFromBottomOfParent = parentsDistanceFromTop + parentHeight - elementsDistanceFromTop;
+
+              stickyBottomLine = elementsDistanceFromScrollbarStart + elementsDistanceFromBottomOfParent - $elem[0].offsetHeight - marginBottom - elementPaddingBottom - elementPaddingTop - offset + (+scrollbarYPos());
+              checkIfShouldStick();
+          };
+
+          /**
+           * Triggered on change of the element top
+           */
+          var onChange = function(newVal, oldVal) {
+
+            /**
+             * Indicate if the DOM element is showed, or not
+             * @type {boolean}
+             */
+            var elemIsShowed = !!newVal;
+
+            /**
+             * Indicate if the DOM element was showed, or not
+             * @type {boolean}
+             */
+            var elemWasHidden = !oldVal;
+            var valChange = (newVal !== oldVal || typeof stickyLine === 'undefined');
+            var notSticking = (!isSticking && !isBottomedOut());
+
+            if (valChange && notSticking && newVal > 0 && elemIsShowed) {
+              stickyLine = newVal - offset;
+              //Update dimensions of sticky element when is showed
+              if (elemIsShowed && elemWasHidden) {
+                $scope.updateStickyContentUpdateDimensions($elem[0].offsetWidth, $elem[0].offsetHeight);
+              }
+            }
+          };
+
+          /**
+           * Initialize Sticky
+           */
+          function initSticky() {
+
+            if (shouldInitialize) {
+
+              // Listeners
+              scrollbarElement.on('scroll', checkIfShouldStick);
+              windowElement.on('resize', $onResize);
+
+              memorizeDimensions(); // remember sticky's layout dimensions
+
+              // Setup watcher on digest and change
+              $scope.$watch(onDigest, onChange);
+              
+              // IF the sticky is confined
+              if (confine) {
+                // Make sure the parent is relatively positioned, otherwise it won't bottom out properly
+                $elParent.css({
+                  'position': 'relative'
+                });
+
+                // Setup watcher on parent height as we need to recalculate the bottom if it does
+                $scope.$watch(onParentHeightChange, stickyBottomLineCalculate);
+              }              
+
+              // Clean up
+              $scope.$on('$destroy', onDestroy);
+              shouldInitialize = false;
+            }
+          }
+
+          /**
+           * need to recall sticky's DOM attributes (make sure layout has occured)
+           */
+          function memorizeDimensions() {
+            // immediate assignment, but there is the potential for wrong values if content not ready
+            initialCSS = $scope.getInitialDimensions();
+
+            // option to calculate the dimensions when layout is 'ready'
+            if (isStickyLayoutDeferred) {
+
+              // logic: when this directive link() runs before the content has had a chance to layout on browser, height could be 0
+              if (!$elem[0].getBoundingClientRect().height) {
+
+                onStickyHeighUnbind = $scope.$watch(
+                    function() {
+                      return $elem.height();
+                    },
+
+                    // state change: sticky content's height set
+                    function onStickyContentLayoutInitialHeightSet(newValue) {
+                      if (newValue > 0) {
+                        // now can memorize
+                        initialCSS = $scope.getInitialDimensions();
+
+                        if (!isStickyLayoutWatched) {
+                          // preference was to do just a one-time async watch on the sticky's content; now stop watching
+                          onStickyHeighUnbind();
+                        }
+                      }
+                    }
+               );
+              }
+            }
+          }
 
           /**
            * determine the respective node that handles scrolling, defaulting to browser window
@@ -238,9 +387,7 @@
            * Seems to be undocumented functionality
            */
           function shouldStickWithLimit(shouldApplyWithLimit) {
-            return shouldApplyWithLimit === 'true'
-              ? ($window.innerHeight - ($elem[0].offsetHeight + parseInt(offset)) < 0)
-              : false;
+            return shouldApplyWithLimit === 'true' ? ($window.innerHeight - ($elem[0].offsetHeight + parseInt(offset)) < 0) : false;
           }
 
           /**
@@ -313,14 +460,14 @@
           /**
            * Sticks the element
            */
-          function stickElement(closestLine) {
+          function stickElement() {
             // When setting the css for fixed position we must get the internal width minus the padding
-            var cssElementWidthInt = $scope.getInternalWidthNoPadding($elem[0]);
-            var cssElementWidth = $scope.intToPixelString(cssElementWidthInt);
+            var cssElementWidthInt = getInternalWidthNoPadding($elem[0]);
+            var cssElementWidth = intToPixelString(cssElementWidthInt);
 
             // If the element has a 'right' css value set, we must convert that value into a fixed distance from viewport right.
             // Fixed position is relative to the viewport where the absolute position is relative to the parent
-            var cssElementFixedRightValue = $scope.absoluteToFixedCSSRight($elem);
+            var cssElementFixedRightValue = absoluteToFixedCSSRight($elem[0]);
 
             // Set sticky state
             isSticking = true;
@@ -353,123 +500,12 @@
           }
 
           /**
-           * Clean up directive
-           */
-          var onDestroy = function() {
-            scrollbarElement.off('scroll', checkIfShouldStick);
-            windowElement.off('resize', $onResize);
-
-            $onResize = null;
-
-            $body.removeClass(bodyClass);
-
-            if (placeholder) {
-              placeholder.remove();
-            }
-          };
-
-          /**
            * Updates on resize.
            */
           function onResize() {
             unStickElement(anchor);
             checkIfShouldStick();
           }
-
-          /**
-           * Triggered on load / digest cycle
-           * return `0` if the DOM element is hidden
-           */
-          var onDigest = function() {
-            if ($scope.disabled === true) {
-              return unStickElement();
-            }
-            var offsetFromTop = elementsOffsetFromTop($elem[0]);
-            if (offsetFromTop === 0) {
-              return offsetFromTop;
-            }
-            if (anchor === 'top') {
-              return (originalOffset || offsetFromTop) - elementsOffsetFromTop(scrollbar) + scrollbarYPos();
-            } else {
-              return offsetFromTop - scrollbarHeight() + $elem[0].offsetHeight + scrollbarYPos();
-            }
-          };
-
-          // Triggered when parent height changes
-          var onParentHeightChange = function() {
-            return $elParent[0].offsetHeight;
-          }
-
-          /**
-           * Triggered when the parent height changes and need to recalculate stickyBottom
-           */
-          var stickyBottomLineCalculate = function() {
-            // Get Parent height, so we know when to bottom out for confined stickies
-              var parent = $elParent[0];
-
-              // The element height is being subtracted below so if we do it here we are doubling the subtraction
-              // Offset parent height by the elements height, if we're not using a placeholder
-              //var parentHeight = parseInt(parent.offsetHeight) - (usePlaceholder ? 0 : $elem[0].offsetHeight);
-              var parentHeight = parseInt(parent.offsetHeight);
-
-              // and now lets ensure we adhere to the bottom margins
-              // TODO: make this an attribute? Maybe like ignore-margin?
-              var marginBottom = parseInt($elem.css('margin-bottom').replace(/px;?/, '')) || 0;
-
-              // The element.offsetHeight should include the padding, but without subtracting the padding top and bottom again, 
-              // the element will dip below the parent by the padding number of pixels
-              var elementPaddingBottom = $scope.pixelStringToInt($window.getComputedStyle($elem[0]).getPropertyValue('padding-bottom')) || 0;
-              var elementPaddingTop = $scope.pixelStringToInt($window.getComputedStyle($elem[0]).getPropertyValue('padding-top')) || 0;
-
-              // specify the bottom out line for the sticky to unstick
-              var elementsDistanceFromTop = elementsOffsetFromTop($elem[0]);
-              var parentsDistanceFromTop = elementsOffsetFromTop(parent)
-              var scrollbarDistanceFromTop = elementsOffsetFromTop(scrollbar);
-
-              var elementsDistanceFromScrollbarStart = elementsDistanceFromTop - scrollbarDistanceFromTop;
-              var elementsDistanceFromBottomOfParent = parentsDistanceFromTop + parentHeight - elementsDistanceFromTop;
-
-              stickyBottomLine = elementsDistanceFromScrollbarStart
-                + elementsDistanceFromBottomOfParent
-                - $elem[0].offsetHeight
-                - marginBottom
-                - elementPaddingBottom
-                - elementPaddingTop
-                - offset
-                + +scrollbarYPos();
-          }
-
-          /**
-           * Triggered on change of the element top
-           */
-          var onChange = function(newVal, oldVal) {
-
-            /**
-             * Indicate if the DOM element is showed, or not
-             * @type {boolean}
-             */
-            var elemIsShowed = !!newVal;
-
-            /**
-             * Indicate if the DOM element was showed, or not
-             * @type {boolean}
-             */
-            var elemWasHidden = !oldVal;
-            var valChange = (newVal !== oldVal || typeof stickyLine === 'undefined');
-            var notSticking = (!isSticking && !isBottomedOut());
-
-            if (valChange && notSticking && newVal > 0 && elemIsShowed) {
-              stickyLine = newVal - offset;
-              //Update dimensions of sticky element when is showed
-              if (elemIsShowed && elemWasHidden) {
-                $scope.updateStickyContentUpdateDimensions($elem[0].offsetWidth, $elem[0].offsetHeight);
-              }
-            }
-          };
-
-          /**
-           * Helper Functions
-           */
 
           /**
            * Create a placeholder
@@ -569,12 +605,12 @@
           function getCSS($el, prop) {
             var el = $el[0],
                 computed = window.getComputedStyle(el),
-                prevDisplay = computed.display,
+                //prevDisplay = computed.display,
                 val;
 
             // hide the element so that we can get original css
             // values instead of computed values
-            el.style.display = "none";
+            el.style.display = 'none';
 
             // NOTE - computed style declaration object is a reference
             // to the element's CSSStyleDeclaration, so it will always
@@ -599,7 +635,7 @@
           $scope.isSticking = function() { return isSticking; };
           $scope.getOriginalInitialCSS = function() { return originalInitialCSS; };
           // pass through aliases
-          $scope.processUnStickElement = function(anchor) { unStickElement(anchor)};
+          $scope.processUnStickElement = function(anchor) { unStickElement(anchor);};
           $scope.processCheckIfShouldStick =function() { checkIfShouldStick(); };
 
           /**
@@ -607,7 +643,7 @@
            */
           $scope.getInitialDimensions = function() {
             // to use for css we just want the internal width without padding
-            var cssElementWidth = $scope.intToPixelString($scope.getInternalWidthNoPadding($elem[0]));
+            var cssElementWidth = intToPixelString(getInternalWidthNoPadding($elem[0]));
             return {
               zIndex: $elem.css('z-index'),
               top: $elem.css('top'),
@@ -622,44 +658,6 @@
               //width: $elem[0].offsetWidth,               
               height: $elem.css('height')
             };
-          };
-
-          /**
-           * Need to get width without padding if using to set css of the element
-           */
-          $scope.getInternalWidthNoPadding = function(elem) {
-            var elemPaddingLeft = $scope.pixelStringToInt($window.getComputedStyle(elem).getPropertyValue('padding-left'));
-            var elemPaddingRight = $scope.pixelStringToInt($window.getComputedStyle(elem).getPropertyValue('padding-right'));
-
-            var elemWidth = elem.clientWidth - elemPaddingLeft - elemPaddingRight;
-            // Width shouldn't be negative, but could be if width is 0 and padding exists
-            elemWidth = elemWidth < 0 ? 0 : elemWidth;
-            return elemWidth;
-          };
-
-          $scope.intToPixelString = function(val) {
-            return val ? val.toString() + 'px' : '';
-          };
-          $scope.pixelStringToInt = function(val) {
-            return val ? parseInt(val.replace(/px;?/, '')) : 0;
-          };
-
-          /**
-           * Get the CSS 'right' value for an absolute element that is becoming fixed. 
-           * When the element is absolute, the 'right' value is relative to the parent. When the element fixed it is based on viewport.
-           */
-          $scope.absoluteToFixedCSSRight = function(elem) {
-              var parent = $elParent[0];
-              var parentWidth = parent.offsetWidth
-              var viewPortWidth = $document[0].documentElement.clientWidth;
-              // Calculate parent distance from right side of viewport by subtracting parent left from viewportwidth 
-              var parentViewPortFromRight = viewPortWidth - parent.getBoundingClientRect().left;
-              // Subtract the parent width from value to find the unaccounted for pixels that are outside the parent (padding, margins etc)
-              var additionalRightPixels = parentViewPortFromRight - parentWidth;
-              additionalRightPixels = additionalRightPixels < 0 ? -1 : additionalRightPixels;
-
-              var elemRight = $scope.pixelStringToInt($window.getComputedStyle($elem[0]).getPropertyValue('right'));
-              return $scope.intToPixelString(elemRight + additionalRightPixels);
           };
 
           /**
@@ -728,9 +726,9 @@
 
             // use this directive element's as default, if no measurements passed in
             if (newWidth === undefined && newHeight === undefined) {
-              var e_bcr = $scope.getElement()[0].getBoundingClientRect();
-              newWidth = e_bcr.width;
-              newHeight = e_bcr.height;
+              var eBCR = $scope.getElement()[0].getBoundingClientRect();
+              newWidth = eBCR.width;
+              newHeight = eBCR.height;
             }
 
             // update model with new dimensions (if supplied from client's own measurement)

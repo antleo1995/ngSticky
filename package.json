@@ -1,12 +1,12 @@
 {
-  "name": "ngsticky-nrowan",
+  "name": "ngsticky-liberty",
   "version": "1.8.14",
   "homepage": "https://github.com/nrowan/ngSticky",
   "authors": [
     "Nate Rowan <naterowandev@gmail.com>"
   ],
   "description": "A simple, pure javascript (No jQuery required!) AngularJS directive to make elements stick when scrolling down.",
-  "main": "lib/sticky.js",
+  "main": "src/sticky.js",
   "dependencies": {
     "angular": "^1.2.0"
   },
@@ -39,7 +39,7 @@
   },
   "scripts": {
     "examples": "http-server",
-    "build": "uglifyjs --compress -o dist/sticky.min.js -- lib/sticky.js"
+    "build": "uglifyjs --compress -o dist/sticky.min.js -- src/sticky.js"
   },
   "devDependencies": {
     "http-server": "^0.9.0",
