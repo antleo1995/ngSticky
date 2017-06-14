@@ -105,22 +105,18 @@
             elemWidth = elemWidth < 0 ? 0 : elemWidth;
             return elemWidth;
           };
+          
           /**
-           * Get the CSS 'right' value for an absolute element that is becoming fixed. 
-           * When the element is absolute, the 'right' value is relative to the parent. When the element fixed it is based on viewport.
+           * Keep the element horizontally inside the parent as user resizes window or scrolls horizontally. 
+           * In a fixed position the element needs a left position based on the parents distance from left side of window.
            */
-          var absoluteToFixedCSSRight = function(elem) {
-              var parent = $elParent[0];
-              var parentWidth = parent.offsetWidth;
-              var viewPortWidth = $document[0].documentElement.clientWidth;
-              // Calculate parent distance from right side of viewport by subtracting parent left from viewportwidth 
-              var parentViewPortFromRight = viewPortWidth - parent.getBoundingClientRect().left;
-              // Subtract the parent width from value to find the unaccounted for pixels that are outside the parent (padding, margins etc)
-              var additionalRightPixels = parentViewPortFromRight - parentWidth;
-              additionalRightPixels = additionalRightPixels < 0 ? -1 : additionalRightPixels;
-
-              var elemRight = pixelStringToInt($window.getComputedStyle(elem).getPropertyValue('right'));
-              return intToPixelString(elemRight + additionalRightPixels);
+          var elemHorizStickInParent = function() {
+            // We only need to adjust the css if the element is fixed. Otherwise the absolute positioning is relative to parent
+            if(confine) {
+              // Find parent left position relative to window
+              var cssElementFixedRightValue = $elParent[0].getBoundingClientRect().left;
+              $elem.css('left', cssElementFixedRightValue + 'px');
+            }
           };
           
 
@@ -155,7 +151,16 @@
             // bigger then the viewport
             var closestLine = getClosest(scrollbarPosition, stickyLine, stickyBottomLine);
 
-            if (shouldStick && !shouldStickWithLimit($attrs.stickLimit) && !isSticking) {
+            
+            // Should element stick on this calculation
+            var shouldStickNow = shouldStick && !shouldStickWithLimit($attrs.stickLimit) && !isSticking;
+            
+            // Any time element is sticking or about to stick we must update elements left position relative to window
+            if(isSticking || shouldStickNow) {
+              elemHorizStickInParent();
+            }
+
+            if (shouldStickNow) {
               stickElement(closestLine);
             } else if (!shouldStick && isSticking) {
               unStickElement(closestLine, scrollbarPosition);
@@ -292,9 +297,6 @@
 
               memorizeDimensions(); // remember sticky's layout dimensions
 
-              // Setup watcher on digest and change
-              $scope.$watch(onDigest, onChange);
-              
               // IF the sticky is confined
               if (confine) {
                 // Make sure the parent is relatively positioned, otherwise it won't bottom out properly
@@ -304,7 +306,11 @@
 
                 // Setup watcher on parent height as we need to recalculate the bottom if it does
                 $scope.$watch(onParentHeightChange, stickyBottomLineCalculate);
-              }              
+                stickyBottomLineCalculate();
+              }  
+
+              // Setup watcher on digest and change
+              $scope.$watch(onDigest, onChange);            
 
               // Clean up
               $scope.$on('$destroy', onDestroy);
@@ -429,7 +435,6 @@
                 .css('top', initialCSS.top)
                 .css('position', initialCSS.position)
                 .css('left', initialCSS.cssLeft)
-                .css('right', initialCSS.cssRight)
                 .css('margin-top', initialCSS.marginTop)
                 .css('height', initialCSS.height);
             } else if (fromDirection === 'bottom' && confine === true) {
@@ -446,7 +451,6 @@
                 .css('bottom', 0)
                 .css('position', 'absolute')
                 .css('left', initialCSS.cssLeft)
-                .css('right', initialCSS.cssRight)
                 .css('margin-top', initialCSS.marginTop)
                 .css('margin-bottom', initialCSS.marginBottom)
                 .css('height', initialCSS.height);
@@ -465,14 +469,9 @@
             var cssElementWidthInt = getInternalWidthNoPadding($elem[0]);
             var cssElementWidth = intToPixelString(cssElementWidthInt);
 
-            // If the element has a 'right' css value set, we must convert that value into a fixed distance from viewport right.
-            // Fixed position is relative to the viewport where the absolute position is relative to the parent
-            var cssElementFixedRightValue = absoluteToFixedCSSRight($elem[0]);
-
             // Set sticky state
             isSticking = true;
             $timeout(function() {
-              //initialCSS.offsetWidth = $elem[0].offsetWidth;
               initialCSS.offsetWidth = cssElementWidthInt;
             }, 0);
             $body.addClass(bodyClass);
@@ -486,12 +485,9 @@
             $elem
               .css('z-index', '10')
               .css('width', cssElementWidth)
-              //.css('width', $elem[0].offsetWidth + 'px')
               .css('position', 'fixed')
-              .css('left', $elem.css('left').replace('px', '') + 'px')
               .css(anchor, (offset + elementsOffsetFromTop(scrollbar)) + 'px')
               .css('margin-top', 0)
-              .css('right', cssElementFixedRightValue)
               .css('bottom', '');
 
             if (anchor === 'bottom') {
